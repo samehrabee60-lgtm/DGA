@@ -1,0 +1,27 @@
+
+name: Build Windows EXE
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+      - name: Build exe
+        run: |
+          pyinstaller --noconfirm --onefile --add-data "thresholds.json;." --add-data "data;data" --add-data "logo.jpg;." --name "DGA-Assistant" run_app.py
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DGA-Assistant-exe
+          path: dist/DGA-Assistant.exe
