@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+*.swp
+
+# Environment Variables (Secrets)
+.env
+.streamlit/secrets.toml
+
+# Local Data
+data/
+*.pdf
+*.xlsx
+DGA-Assistant.exe
+build/
+dist/
+*.spec
