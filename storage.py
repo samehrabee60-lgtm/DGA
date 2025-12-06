@@ -41,10 +41,16 @@ def clean_float(val):
     except:
         return None
 
+import pandas as pd
 import dateutil.parser
 
 def clean_date(val):
-    if not val: return None
+    if not val or pd.isna(val): return None
+    
+    # Handle pandas Timestamp or datetime objects directly
+    if hasattr(val, "strftime"):
+        return val.strftime("%Y-%m-%d")
+
     try:
         # Attempt to parse date string to YYYY-MM-DD
         dt = dateutil.parser.parse(str(val))
