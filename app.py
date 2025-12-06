@@ -128,8 +128,8 @@ def main_app(role):
         from dateutil.relativedelta import relativedelta
         from dateutil import parser
         
-        # Match 'R' followed by optional separators (- : space) and digits
-        match = re.search(r"R[\s\-\:\.]*(\d+)", rec)
+        # Match 'R' followed by optional separators (- : space . ( ) ) and digits
+        match = re.search(r"R[\s\-\:\.\(\)]*(\d+)", rec)
         if match:
             months = int(match.group(1))
             try:
