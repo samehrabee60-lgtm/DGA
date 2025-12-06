@@ -28,8 +28,12 @@ def add_column():
         # Check if exists first to avoid error? Or just try and catch.
         # "IF NOT EXISTS" is cleaner.
         sql = "ALTER TABLE public.dga_samples ADD COLUMN IF NOT EXISTS reanalysis_date DATE;"
-        
         cur.execute(sql)
+        
+        # Reload PostgREST schema cache
+        print("Reloading schema cache...")
+        cur.execute("NOTIFY pgrst, 'reload schema';")
+        
         conn.commit()
         
         print("✅ Success! The column 'reanalysis_date' has been added.")
