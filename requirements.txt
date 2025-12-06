@@ -7,5 +7,5 @@ reportlab==4.2.5
 pyinstaller==6.6.0
 google-generativeai
 python-dotenv
-supabase
+supabase>=2.0.0
 python-dateutil
