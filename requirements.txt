@@ -11,6 +11,7 @@ reportlab
 # مكتبات الذكاء الاصطناعي وقواعد البيانات
 google-generativeai
 supabase>=2.5.0
+psycopg2-binary
 
 # مكتبات الأدوات المساعدة
 python-dotenv
