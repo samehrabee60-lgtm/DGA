@@ -124,8 +124,11 @@ def main_app(role):
 
     def retest_date(row):
         rec = str(row.get("C.Recommended","")).upper().strip()
-        if len(rec)>=2 and rec[0]=="R" and rec[1:].isdigit():
-            months = int(rec[1:])
+        import re
+        # Match 'R' followed by any number of spaces, then digits
+        match = re.search(r"R\s*(\d+)", rec)
+        if match:
+            months = int(match.group(1))
             try:
                 base = pd.to_datetime(row.get("تاريخ التحليل",""))
                 if pd.isna(base): return ""
@@ -505,6 +508,9 @@ def main_app(role):
             # Ensure O2/N2 exists for styling (even if DB didn't return it)
             if "O2/N2" not in db_df.columns:
                 db_df["O2/N2"] = None
+
+            # Calculate Reanalysis Date on the fly
+            db_df["تاريخ إعادة التحليل"] = db_df.apply(lambda r: retest_date(r), axis=1)
 
             # Ensure numbers are numeric for styling
             num_cols = ["O2","N2","H2","CO2","CO","CH4","C2H2","C2H4","C2H6","O2/N2"]
