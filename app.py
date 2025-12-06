@@ -7,7 +7,7 @@ from pdf_import import extract_from_pdf
 from report_export import generate_sample_pdf
 from storage import load_db, append_to_db, ensure_storage
 from ai_module import get_dga_diagnosis
-import re # تم استيراد مكتبة re
+import re 
 
 icon_path = "logo.jpg" if os.path.exists("logo.jpg") else None
 st.set_page_config(page_title="DGA Assistant", layout="wide", page_icon=icon_path)
@@ -146,7 +146,7 @@ def main_app(role):
         except:
             return None
             
-    # --- Styling Helpers: دالة التنسيق المصححة ---
+    # --- Styling Helpers: دالة التنسيق المصححة لمنع خطأ ValueError ---
     def highlight_gases(df):
         # Returns a DataFrame of CSS strings
         styles = pd.DataFrame('', index=df.index, columns=df.columns)
@@ -210,7 +210,7 @@ def main_app(role):
             # Only extract if we haven't already for this file (simple check)
             if not st.session_state.get("file_processed") or st.session_state.get("last_uploaded") != uploaded.name:
                  # Read bytes once
-                 file_bytes = uploaded.read() # السطر الذي كان يسبب خطأ المسافة البادئة
+                 file_bytes = uploaded.read()
                  
                  # Attempt extraction
                  current_api_key = api_key_input or os.environ.get("GEMINI_API_KEY")
