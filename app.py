@@ -1,10 +1,4 @@
-import subprocess, sys
-try:
-    import supabase
-except ImportError:
-    print("Installing missing 'supabase' library...")
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "supabase"])
-    import supabase
+import supabase
 
 import streamlit as st
 import pandas as pd, json, os
