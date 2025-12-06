@@ -116,6 +116,7 @@ def append_to_db(data: dict, pdf_bytes=None, filename=None):
         "result_text": data.get("Result of analysis"),
         "dga_code": data.get("DGA"),
         "recommendation": data.get("C.Recommended"),
+        "reanalysis_date": clean_date(data.get("تاريخ إعادة التحليل")),
         "ai_diagnosis": data.get("AI Report", ""),
         "source_file": pdf_url or data.get("source_file", "manual_entry") # Store URL if available
     }

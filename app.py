@@ -448,7 +448,8 @@ def main_app(role):
             "ch4": "CH4", "c2h2": "C2H2", "c2h4": "C2H4", "c2h6": "C2H6",
             "o2_n2_ratio": "O2/N2", "result_text": "Result of analysis",
             "dga_code": "DGA", "recommendation": "C.Recommended",
-            "ai_diagnosis": "AI Report"
+            "ai_diagnosis": "AI Report",
+            "reanalysis_date": "تاريخ إعادة التحليل"
         }
         
         db_df = pd.DataFrame(db)
