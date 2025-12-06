@@ -502,6 +502,10 @@ def main_app(role):
         if not db_df.empty:
             # Rename columns that exist
             db_df = db_df.rename(columns=db_map)
+            # Ensure O2/N2 exists for styling (even if DB didn't return it)
+            if "O2/N2" not in db_df.columns:
+                db_df["O2/N2"] = None
+
             # Ensure numbers are numeric for styling
             num_cols = ["O2","N2","H2","CO2","CO","CH4","C2H2","C2H4","C2H6","O2/N2"]
             for c in num_cols:
