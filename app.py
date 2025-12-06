@@ -125,17 +125,27 @@ def main_app(role):
     def retest_date(row):
         rec = str(row.get("C.Recommended","")).upper().strip()
         import re
-        # Match 'R' followed by any number of spaces, then digits
-        match = re.search(r"R\s*(\d+)", rec)
+        from dateutil.relativedelta import relativedelta
+        from dateutil import parser
+        
+        # Match 'R' followed by optional separators (- : space) and digits
+        match = re.search(r"R[\s\-\:\.]*(\d+)", rec)
         if match:
             months = int(match.group(1))
             try:
-                base = pd.to_datetime(row.get("تاريخ التحليل",""))
-                if pd.isna(base): return ""
-                year = base.year + (base.month + months - 1)//12
-                month = (base.month + months - 1)%12 + 1
-                day = min(base.day, [31,29 if year%4==0 and (year%100!=0 or year%400==0) else 28,31,30,31,30,31,31,30,31,30,31][month-1])
-                return pd.Timestamp(year,month,day)
+                val = row.get("تاريخ التحليل")
+                if pd.isna(val) or val == "" or val is None: return ""
+                
+                # Handle existing Timestamp objects or strings
+                if isinstance(val, pd.Timestamp):
+                    base = val
+                elif isinstance(val, datetime):
+                     base = pd.Timestamp(val)
+                else:
+                    base = parser.parse(str(val))
+                
+                new_date = base + relativedelta(months=months)
+                return new_date
             except:
                 return ""
         return ""
