@@ -1,5 +1,4 @@
 import supabase
-
 import streamlit as st
 import pandas as pd, json, os
 from io import BytesIO
@@ -8,6 +7,7 @@ from pdf_import import extract_from_pdf
 from report_export import generate_sample_pdf
 from storage import load_db, append_to_db, ensure_storage
 from ai_module import get_dga_diagnosis
+import re 
 
 icon_path = "logo.jpg" if os.path.exists("logo.jpg") else None
 st.set_page_config(page_title="DGA Assistant", layout="wide", page_icon=icon_path)
@@ -140,15 +140,16 @@ def main_app(role):
                 return ""
         return ""
 
-    # --- Styling Helpers ---
-    def highlight_o2n2(val):
+    # دالة مساعدة للحصول على القيمة الرقمية من الخلية
+    def get_numeric_value(val):
+        if pd.isna(val) or val is None or val == "":
+            return None
         try:
-            v = float(val)
-            if v > 1.0: return "color: red; font-weight: bold"
-            if v > 0.2: return "color: #9C5700; font-weight: bold"
-        except: pass
-        return ""
-
+            return float(str(val).replace(",", ""))
+        except:
+            return None
+            
+    # --- Styling Helpers: دالة التنسيق المصححة لمنع خطأ ValueError ---
     def highlight_gases(df):
         # Returns a DataFrame of CSS strings
         styles = pd.DataFrame('', index=df.index, columns=df.columns)
@@ -158,45 +159,45 @@ def main_app(role):
         
         for idx, row in df.iterrows():
             # Determine O2/N2 Ratio Category
-            try: 
-                ratio = float(row.get("O2/N2", 0))
-            except: 
-                ratio = 0
+            ratio = get_numeric_value(row.get("O2/N2"))
+            if ratio is None: ratio = 0
             
             is_le_02 = (ratio <= 0.2)
             
             # Check O2/N2 Column itself
-            try:
-                style_o2n2 = ""
-                if ratio > 1.0: style_o2n2 = "color: red; font-weight: bold"
-                elif ratio > 0.2: style_o2n2 = "color: #9C5700; font-weight: bold"
-                styles.loc[idx, "O2/N2"] = style_o2n2
-            except: pass
+            style_o2n2 = ""
+            if ratio > 1.0: style_o2n2 = "color: red; font-weight: bold"
+            elif ratio > 0.2: style_o2n2 = "color: #9C5700; font-weight: bold"
+            styles.loc[idx, "O2/N2"] = style_o2n2
 
             # Check other gases based on ratio
             for gas in ["H2","CH4","C2H6","C2H4","C2H2","CO","CO2"]:
                 if gas not in row or gas not in tdf.index: continue
-                try:
-                    val = float(str(row[gas]).replace(",",""))
+                
+                val = get_numeric_value(row.get(gas))
+                if val is None: continue # Skip if not a valid number
+                
+                # Get limits based on ratio
+                if is_le_02:
+                    lim_90 = get_numeric_value(tdf.loc[gas, "90th_<=0.2"])
+                    lim_95 = get_numeric_value(tdf.loc[gas, "95th_<=0.2"])
+                else:
+                    lim_90 = get_numeric_value(tdf.loc[gas, "90th_>0.2"])
+                    lim_95 = get_numeric_value(tdf.loc[gas, "95th_>0.2"])
                     
-                    # Get limits based on ratio
-                    if is_le_02:
-                        lim_90 = tdf.loc[gas, "90th_<=0.2"]
-                        lim_95 = tdf.loc[gas, "95th_<=0.2"]
-                    else:
-                        lim_90 = tdf.loc[gas, "90th_>0.2"]
-                        lim_95 = tdf.loc[gas, "95th_>0.2"]
-                        
-                    # Apply Colors (Background for easier visibility)
-                    if val > lim_95:
-                        styles.loc[idx, gas] = "background-color: #FFC7CE; color: #9C0006" # Red
-                    elif val > lim_90:
-                        styles.loc[idx, gas] = "background-color: #FFEB9C; color: #9C5700" # Yellow
-                    else:
-                        styles.loc[idx, gas] = "background-color: #C6EFCE; color: #006100" # Green
-                except:
-                    pass
+                if lim_95 is None or lim_90 is None: continue # Skip if limits are invalid
+                
+                # Apply Colors (Background for easier visibility)
+                if val > lim_95:
+                    styles.loc[idx, gas] = "background-color: #FFC7CE; color: #9C0006" # Red
+                elif val > lim_90:
+                    styles.loc[idx, gas] = "background-color: #FFEB9C; color: #9C5700" # Yellow
+                else:
+                    styles.loc[idx, gas] = "background-color: #C6EFCE; color: #006100" # Green
+                    
         return styles
+
+    # --- نهاية دالة highlight_gases المصححة ---
 
     tab1, tab2, tab3 = st.tabs(["Import PDF & Edit","Work Table & Export Excel","Database"])
 
@@ -213,7 +214,6 @@ def main_app(role):
             if not st.session_state.get("file_processed") or st.session_state.get("last_uploaded") != uploaded.name:
                  # Read bytes once
                  file_bytes = uploaded.read()
-                 st.session_state["pdf_bytes"] = file_bytes
                  
                  # Attempt extraction
                  current_api_key = api_key_input or os.environ.get("GEMINI_API_KEY")
@@ -291,7 +291,6 @@ def main_app(role):
             if not r.get("الجهد"):
                 try:
                     val = str(r.get("المحول", ""))
-                    import re
                     # Look for patterns like 66/11, 220/66, 500/220
                     m = re.search(r"(\d{2,3}(?:/\d{2,3})?)", val)
                     if m:
@@ -377,55 +376,6 @@ def main_app(role):
             edited["تاريخ إعادة التحليل"] = edited.apply(lambda r: retest_date(r), axis=1)
         
         # --- Advanced Conditional Formatting (UI) ---
-        def highlight_gases(df):
-            # Returns a DataFrame of CSS strings
-            styles = pd.DataFrame('', index=df.index, columns=df.columns)
-            
-            # Load thresholds
-            tdf = pd.DataFrame(thr["unknown_age"]).set_index("Gas")
-            
-            for idx, row in df.iterrows():
-                # Determine O2/N2 Ratio Category
-                try: 
-                    ratio = float(row.get("O2/N2", 0))
-                except: 
-                    ratio = 0
-                
-                is_le_02 = (ratio <= 0.2)
-                
-                # Check O2/N2 Column itself (Yellow > 0.2, Red > 1.0)
-                try:
-                    style_o2n2 = ""
-                    if ratio > 1.0: style_o2n2 = "color: red; font-weight: bold"
-                    elif ratio > 0.2: style_o2n2 = "color: #9C5700; font-weight: bold"
-                    styles.loc[idx, "O2/N2"] = style_o2n2
-                except: pass
-
-                # Check other gases based on ratio
-                for gas in ["H2","CH4","C2H6","C2H4","C2H2","CO","CO2"]:
-                    if gas not in row or gas not in tdf.index: continue
-                    try:
-                        val = float(str(row[gas]).replace(",",""))
-                        
-                        # Get limits based on ratio
-                        if is_le_02:
-                            lim_90 = tdf.loc[gas, "90th_<=0.2"]
-                            lim_95 = tdf.loc[gas, "95th_<=0.2"]
-                        else:
-                            lim_90 = tdf.loc[gas, "90th_>0.2"]
-                            lim_95 = tdf.loc[gas, "95th_>0.2"]
-                            
-                        # Apply Colors
-                        if val > lim_95:
-                            styles.loc[idx, gas] = "background-color: #F8CBAD; color: black" # Red-ish bg
-                        elif val > lim_90:
-                            styles.loc[idx, gas] = "background-color: #FFEB9C; color: black" # Yellow-ish bg
-                        else:
-                            styles.loc[idx, gas] = "background-color: #C6EFCE; color: black" # Green-ish bg
-                    except:
-                        pass
-            return styles
-
         st.dataframe(edited.style.apply(highlight_gases, axis=None), use_container_width=True)
     
         def export_with_rules(df):
