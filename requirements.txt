@@ -1,11 +1,20 @@
-streamlit==1.39.0
-pandas==2.2.2
-openpyxl==3.1.5
-xlsxwriter==3.2.0
-pdfplumber==0.11.4
-reportlab==4.2.5
-pyinstaller==6.6.0
+# مكتبات الواجهة الأمامية والأساسية
+streamlit>=1.39.0
+pandas>=2.2.2
+
+# مكتبات التعامل مع ملفات Excel و PDF
+openpyxl
+xlsxwriter
+pdfplumber
+reportlab
+
+# مكتبات الذكاء الاصطناعي وقواعد البيانات
 google-generativeai
+supabase>=2.5.0
+
+# مكتبات الأدوات المساعدة
 python-dotenv
-supabase>=2.0.0
 python-dateutil
+
+# pyinstaller (للتجميع المحلي فقط - يمكن حذفه عند النشر السحابي)
+# pyinstaller==6.6.0
