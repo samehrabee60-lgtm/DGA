@@ -471,6 +471,9 @@ def main_app(role):
             if "O2/N2" not in db_df.columns:
                 db_df["O2/N2"] = None
 
+            # Drop technical columns for display
+            db_df = db_df.drop(columns=["id", "created_at"], errors="ignore")
+
             # Calculate Reanalysis Date on the fly
             db_df["تاريخ إعادة التحليل"] = db_df.apply(lambda r: retest_date(r), axis=1)
 
@@ -489,9 +492,7 @@ def main_app(role):
                         "Report PDF", 
                         display_text="📄 View Report",
                         help="Click to open original PDF"
-                    ),
-                    "id": None,
-                    "created_at": None
+                    )
                 }
             )
         else:
