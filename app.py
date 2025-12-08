@@ -494,18 +494,46 @@ def main_app(role):
         else:
             st.info("No data in database yet.")
 
+        else:
+            st.info("No data in database yet.")
+
         st.markdown("---")
         st.subheader("📤 Bulk Import Data")
-        with st.expander("Import from Excel/CSV file", expanded=False):
+        
+        # --- Template Download ---
+        st.markdown("#### 1. Download Template (Optional)")
+        template_data = {
+            "المحطة": ["Substation A"],
+            "المحول": ["TR-1"],
+            "الجهد": ["66/11"],
+            "تاريخ العينة": ["2024-01-01"],
+            "تاريخ التحليل": ["2024-01-02"],
+            "تاريخ إعادة التحليل": ["2024-02-01"],
+            "H2": [10], "O2": [2000], "N2": [5000], "CO": [100], "CO2": [300],
+            "CH4": [5], "C2H4": [10], "C2H6": [2], "C2H2": [0], 
+            "O2/N2": [0.4],
+            "Result of analysis": ["Normal"],
+            "DGA": ["No Fault"],
+            "C.Recommended": ["R 1"],
+            "AI Report": ["Healthy"]
+        }
+        
+        # Create Excel in memory
+        from io import BytesIO
+        tpl_buffer = BytesIO()
+        with pd.ExcelWriter(tpl_buffer, engine='xlsxwriter') as writer:
+            pd.DataFrame(template_data).to_excel(writer, index=False)
+        
+        st.download_button("⬇️ Download Excel Template", data=tpl_buffer.getvalue(), file_name="DGA_Import_Template.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+        st.markdown("#### 2. Upload Your File")
+        with st.expander("Import Configuration", expanded=True):
             st.markdown("""
-            **Instructions:**
-            1. Download your Google Sheet as **Excel (.xlsx)** or **CSV**.
-            2. Upload it below.
-            3. The app will attempt to map columns automatically (e.g. 'المحطة' -> 'substation').
-            4. Review the preview and click **Import to Database**.
+            **Note:** The app expects columns like: `المحطة`, `المحول`, `H2`, `O2`, etc.
+            (English or Arabic headers are accepted).
             """)
             
-            bulk_file = st.file_uploader("Upload File", type=["xlsx", "xls", "csv"])
+            bulk_file = st.file_uploader("Upload Excel/CSV", type=["xlsx", "xls", "csv"])
             if bulk_file:
                 try:
                     # Load Data
@@ -514,56 +542,66 @@ def main_app(role):
                     else:
                         bulk_df = pd.read_excel(bulk_file)
                     
-                    st.write(f"Found {len(bulk_df)} rows and {len(bulk_df.columns)} columns.")
+                    st.write(f"📊 Rows: {len(bulk_df)}, Columns: {len(bulk_df.columns)}")
+                    
+                    # --- Flexible Normalization ---
+                    # Normalize headers: strip, lower, remove BOM
+                    bulk_df.columns = [str(c).strip() for c in bulk_df.columns]
                     
                     # --- Column Mapping Logic ---
                     COLUMN_MAP = {
-                        "المحطة": "substation", "substation": "substation",
-                        "المحول": "transformer", "transformer": "transformer", "transformer no": "transformer",
-                        "الجهد": "voltage", "voltage": "voltage",
-                        "تاريخ العينة": "sample_date", "sample date": "sample_date", "date of sample": "sample_date",
-                        "تاريخ التحليل": "analysis_date", "analysis date": "analysis_date",
-                        "تاريخ إعادة التحليل": "reanalysis_date", "reanalysis date": "reanalysis_date",
+                        "المحطة": "substation", "substation": "substation", "station": "substation",
+                        "المحول": "transformer", "transformer": "transformer", "transformer no": "transformer", "trans": "transformer",
+                        "الجهد": "voltage", "voltage": "voltage", "kv": "voltage",
+                        "تاريخ العينة": "sample_date", "sample date": "sample_date", "date of sample": "sample_date", "sampling date": "sample_date",
+                        "تاريخ التحليل": "analysis_date", "analysis date": "analysis_date", "date of analysis": "analysis_date",
+                        "تاريخ إعادة التحليل": "reanalysis_date", "reanalysis date": "reanalysis_date", "re-test date": "reanalysis_date",
                         "h2": "h2", "o2": "o2", "n2": "n2", "co": "co", "co2": "co2", 
                         "ch4": "ch4", "c2h2": "c2h2", "c2h4": "c2h4", "c2h6": "c2h6",
-                        "o2/n2": "o2_n2_ratio", "result of analysis": "result_text", 
-                        "result": "result_text", "dga": "dga_code", 
-                        "c.recommended": "recommendation", "recommendation": "recommendation",
+                        "o2/n2": "o2_n2_ratio", "o2/n2 ratio": "o2_n2_ratio",
+                        "result of analysis": "result_text", "result": "result_text", "diagnosis": "result_text",
+                        "dga": "dga_code", "code": "dga_code",
+                        "c.recommended": "recommendation", "recommendation": "recommendation", "action": "recommendation",
                         "ai report": "ai_diagnosis", "ai diagnosis": "ai_diagnosis"
                     }
                     
-                    mapped_records = []
+                    mapped_ records = []
                     
-                    # Helper functions from global scope or re-defined if needed
-                    # We can access them via globals() or just assume they are available since we are in the same file
-                    # clean_date and clean_float are in storage.py, imported as: from storage import load_db, append_to_db, ensure_storage
-                    # They are NOT imported by default. I need to make sure clean_date/clean_float are available or re-implement them.
-                    # Actually, storage.py is imported. But clean_date is NOT in the import list in line 8 of app.py!
-                    # Line 8: from storage import load_db, append_to_db, ensure_storage
-                    # I should update import first OR reimplement helpers here. It's safer to reimplement small helpers inside the local scope or update imports.
-                    # I'll update imports in a separate step? No, simpler to just do:
-                    
+                    # Helper functions (Defined locally to avoid scope issues)    
                     def local_clean_float(val):
-                        if not val: return None
+                        if pd.isna(val) or val == "": return None
                         if isinstance(val, (int, float)): return float(val)
                         try: return float(str(val).replace(",", "").strip())
                         except: return None
                         
                     def local_clean_date(val):
-                        if not val or pd.isna(val): return None
+                        if not val or pd.isna(val) or str(val).strip() == "": return None
+                        # Check if it's already a timestamp
                         if hasattr(val, "strftime"): return val.strftime("%Y-%m-%d")
                         try:
                             import dateutil.parser
                             return dateutil.parser.parse(str(val)).strftime("%Y-%m-%d")
                         except: return None
 
-                    for idx, row in bulk_df.iterrows():
-                        new_rec = {}
-                        for col in bulk_df.columns:
-                            c_str = str(col).strip().lower()
-                            if c_str in COLUMN_MAP:
-                                db_key = COLUMN_MAP[c_str]
-                                val = row[col]
+                    # Check which columns were found
+                    found_map = {}
+                    for col in bulk_df.columns:
+                        c_lower = col.lower()
+                        if c_lower in COLUMN_MAP:
+                            found_map[col] = COLUMN_MAP[c_lower]
+                            
+                    if not found_map:
+                        st.error("❌ No matching columns found! Please check your file headers.")
+                        st.warning(f"**Your File Headers:** {list(bulk_df.columns)}")
+                        st.info("Try using the 'Download Template' button above to see the expected format.")
+                    else:
+                        st.success(f"✅ Mapped {len(found_map)} columns: {list(found_map.keys())}")
+                        
+                        mapped_records = []
+                        for idx, row in bulk_df.iterrows():
+                            new_rec = {}
+                            for buf_col, db_key in found_map.items():
+                                val = row[buf_col]
                                 
                                 # Clean Data
                                 if db_key in ["sample_date","analysis_date","reanalysis_date"]:
@@ -575,24 +613,19 @@ def main_app(role):
                                     else: val = str(val).strip()
                                     
                                 new_rec[db_key] = val
-                        
-                        # Add Metadata
-                        if new_rec:
-                            new_rec["source_file"] = f"Bulk Import: {bulk_file.name}"
-                            mapped_records.append(new_rec)
                             
-                    if not mapped_records:
-                        st.error("❌ Could not map any columns! Please check your Excel headers.")
-                        st.write("Expected headers (English or Arabic):", list(COLUMN_MAP.keys()))
-                    else:
-                        preview_df = pd.DataFrame(mapped_records)
-                        st.write("### Preview Mapped Data")
-                        st.dataframe(preview_df.head())
+                            # Skip empty rows (must have at least one valid key like substation or date)
+                            if new_rec.get("substation") or new_rec.get("transformer") or new_rec.get("analysis_date"):
+                                new_rec["source_file"] = f"Bulk Import: {bulk_file.name}"
+                                mapped_records.append(new_rec)
+
+                        st.write(f"READY to import {len(mapped_records)} valid rows.")
+                        with st.expander("Preview Final Data"):
+                             st.dataframe(pd.DataFrame(mapped_records).head())
                         
-                        if st.button(f"🚀 Import {len(mapped_records)} Rows"):
+                        if st.button(f"🚀 Confirm Import ({len(mapped_records)} Rows)"):
                             success_n = 0
                             fail_n = 0
-                            
                             my_bar = st.progress(0)
                             
                             # Batch Insert
@@ -600,12 +633,7 @@ def main_app(role):
                             import math
                             total_batches = math.ceil(len(mapped_records) / batch_size)
                             
-                            # Get client using the hidden helper in load_db or re-init?
-                            # storage.get_supabase_client is not imported.
-                            # But load_db is. I can hack it or just add the import.
-                            # Let's try to get it from os/env if possible or use the one from storage if I import it.
-                            # I will simply import get_supabase_client at the top with a separate edit or just use the one inside storage via module access?
-                            # Simpler:
+                            # Get client
                             from storage import get_supabase_client
                             client = get_supabase_client()
                             
