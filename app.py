@@ -494,6 +494,143 @@ def main_app(role):
         else:
             st.info("No data in database yet.")
 
+        st.markdown("---")
+        st.subheader("📤 Bulk Import Data")
+        with st.expander("Import from Excel/CSV file", expanded=False):
+            st.markdown("""
+            **Instructions:**
+            1. Download your Google Sheet as **Excel (.xlsx)** or **CSV**.
+            2. Upload it below.
+            3. The app will attempt to map columns automatically (e.g. 'المحطة' -> 'substation').
+            4. Review the preview and click **Import to Database**.
+            """)
+            
+            bulk_file = st.file_uploader("Upload File", type=["xlsx", "xls", "csv"])
+            if bulk_file:
+                try:
+                    # Load Data
+                    if bulk_file.name.endswith(".csv"):
+                        bulk_df = pd.read_csv(bulk_file)
+                    else:
+                        bulk_df = pd.read_excel(bulk_file)
+                    
+                    st.write(f"Found {len(bulk_df)} rows and {len(bulk_df.columns)} columns.")
+                    
+                    # --- Column Mapping Logic ---
+                    COLUMN_MAP = {
+                        "المحطة": "substation", "substation": "substation",
+                        "المحول": "transformer", "transformer": "transformer", "transformer no": "transformer",
+                        "الجهد": "voltage", "voltage": "voltage",
+                        "تاريخ العينة": "sample_date", "sample date": "sample_date", "date of sample": "sample_date",
+                        "تاريخ التحليل": "analysis_date", "analysis date": "analysis_date",
+                        "تاريخ إعادة التحليل": "reanalysis_date", "reanalysis date": "reanalysis_date",
+                        "h2": "h2", "o2": "o2", "n2": "n2", "co": "co", "co2": "co2", 
+                        "ch4": "ch4", "c2h2": "c2h2", "c2h4": "c2h4", "c2h6": "c2h6",
+                        "o2/n2": "o2_n2_ratio", "result of analysis": "result_text", 
+                        "result": "result_text", "dga": "dga_code", 
+                        "c.recommended": "recommendation", "recommendation": "recommendation",
+                        "ai report": "ai_diagnosis", "ai diagnosis": "ai_diagnosis"
+                    }
+                    
+                    mapped_records = []
+                    
+                    # Helper functions from global scope or re-defined if needed
+                    # We can access them via globals() or just assume they are available since we are in the same file
+                    # clean_date and clean_float are in storage.py, imported as: from storage import load_db, append_to_db, ensure_storage
+                    # They are NOT imported by default. I need to make sure clean_date/clean_float are available or re-implement them.
+                    # Actually, storage.py is imported. But clean_date is NOT in the import list in line 8 of app.py!
+                    # Line 8: from storage import load_db, append_to_db, ensure_storage
+                    # I should update import first OR reimplement helpers here. It's safer to reimplement small helpers inside the local scope or update imports.
+                    # I'll update imports in a separate step? No, simpler to just do:
+                    
+                    def local_clean_float(val):
+                        if not val: return None
+                        if isinstance(val, (int, float)): return float(val)
+                        try: return float(str(val).replace(",", "").strip())
+                        except: return None
+                        
+                    def local_clean_date(val):
+                        if not val or pd.isna(val): return None
+                        if hasattr(val, "strftime"): return val.strftime("%Y-%m-%d")
+                        try:
+                            import dateutil.parser
+                            return dateutil.parser.parse(str(val)).strftime("%Y-%m-%d")
+                        except: return None
+
+                    for idx, row in bulk_df.iterrows():
+                        new_rec = {}
+                        for col in bulk_df.columns:
+                            c_str = str(col).strip().lower()
+                            if c_str in COLUMN_MAP:
+                                db_key = COLUMN_MAP[c_str]
+                                val = row[col]
+                                
+                                # Clean Data
+                                if db_key in ["sample_date","analysis_date","reanalysis_date"]:
+                                    val = local_clean_date(val)
+                                elif db_key in ["h2","o2","n2","co","co2","ch4","c2h2","c2h4","c2h6","o2_n2_ratio"]:
+                                    val = local_clean_float(val)
+                                else:
+                                    if pd.isna(val) or val == "": val = None
+                                    else: val = str(val).strip()
+                                    
+                                new_rec[db_key] = val
+                        
+                        # Add Metadata
+                        if new_rec:
+                            new_rec["source_file"] = f"Bulk Import: {bulk_file.name}"
+                            mapped_records.append(new_rec)
+                            
+                    if not mapped_records:
+                        st.error("❌ Could not map any columns! Please check your Excel headers.")
+                        st.write("Expected headers (English or Arabic):", list(COLUMN_MAP.keys()))
+                    else:
+                        preview_df = pd.DataFrame(mapped_records)
+                        st.write("### Preview Mapped Data")
+                        st.dataframe(preview_df.head())
+                        
+                        if st.button(f"🚀 Import {len(mapped_records)} Rows"):
+                            success_n = 0
+                            fail_n = 0
+                            
+                            my_bar = st.progress(0)
+                            
+                            # Batch Insert
+                            batch_size = 50
+                            import math
+                            total_batches = math.ceil(len(mapped_records) / batch_size)
+                            
+                            # Get client using the hidden helper in load_db or re-init?
+                            # storage.get_supabase_client is not imported.
+                            # But load_db is. I can hack it or just add the import.
+                            # Let's try to get it from os/env if possible or use the one from storage if I import it.
+                            # I will simply import get_supabase_client at the top with a separate edit or just use the one inside storage via module access?
+                            # Simpler:
+                            from storage import get_supabase_client
+                            client = get_supabase_client()
+                            
+                            if not client:
+                                st.error("Supabase Connection Failed")
+                            else:
+                                for i in range(total_batches):
+                                    batch = mapped_records[i*batch_size : (i+1)*batch_size]
+                                    try:
+                                        client.table("dga_samples").insert(batch).execute()
+                                        success_n += len(batch)
+                                    except Exception as e:
+                                        st.error(f"Batch {i+1} failed: {e}")
+                                        fail_n += len(batch)
+                                    my_bar.progress((i+1)/total_batches)
+                                    
+                                st.success(f"Import Complete! Success: {success_n}, Failed: {fail_n}")
+                                if success_n > 0:
+                                    import time
+                                    time.sleep(2)
+                                    st.rerun()
+
+                except Exception as e:
+                    st.error(f"Error parsing file: {e}")
+
 # -----------------
 # Entry Point
 # -----------------
