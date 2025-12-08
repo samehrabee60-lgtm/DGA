@@ -30,7 +30,7 @@ def login():
     pw = st.text_input("كلمة المرور (Password)", type="password")
     
     if st.button("Sign In"):
-        if user == "admin" and pw == "22446688":
+        if user == "admin" and pw == "@@@":
             st.session_state["logged_in"] = True
             st.session_state["role"] = "admin"
             st.rerun()
@@ -497,6 +497,9 @@ def main_app(role):
             )
         else:
             st.info("No data in database yet.")
+
+        if role == "guest":
+            return
 
         st.markdown("---")
         st.subheader("📤 Bulk Import Data")
