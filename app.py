@@ -389,6 +389,7 @@ def main_app(role):
         st.dataframe(edited.style.apply(highlight_gases, axis=None), use_container_width=True)
     
         def export_with_rules(df):
+            from io import BytesIO
             out = BytesIO()
             import xlsxwriter
             wb = xlsxwriter.Workbook(out, {'in_memory': True})
