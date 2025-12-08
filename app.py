@@ -494,9 +494,6 @@ def main_app(role):
         else:
             st.info("No data in database yet.")
 
-        else:
-            st.info("No data in database yet.")
-
         st.markdown("---")
         st.subheader("📤 Bulk Import Data")
         
@@ -565,7 +562,7 @@ def main_app(role):
                         "ai report": "ai_diagnosis", "ai diagnosis": "ai_diagnosis"
                     }
                     
-                    mapped_ records = []
+
                     
                     # Helper functions (Defined locally to avoid scope issues)    
                     def local_clean_float(val):
