@@ -489,7 +489,9 @@ def main_app(role):
                         "Report PDF", 
                         display_text="📄 View Report",
                         help="Click to open original PDF"
-                    )
+                    ),
+                    "id": None,
+                    "created_at": None
                 }
             )
         else:
@@ -611,6 +613,30 @@ def main_app(role):
                                     else: val = str(val).strip()
                                     
                                 new_rec[db_key] = val
+                            
+                            # --- Auto-Calculations for Missing Fields ---
+                            # 1. O2/N2 Ratio
+                            if new_rec.get("o2") is not None and new_rec.get("n2") not in [None, 0]:
+                                try:
+                                    new_rec["o2_n2_ratio"] = round(float(new_rec["o2"]) / float(new_rec["n2"]), 2)
+                                except: pass
+                                
+                            # 2. Reanalysis Date
+                            if new_rec.get("recommendation") and new_rec.get("analysis_date"):
+                                # Expecting format like "R 1" or "R1" in recommendation
+                                try:
+                                    rec_str = str(new_rec["recommendation"]).upper().strip()
+                                    import re
+                                    from dateutil.relativedelta import relativedelta
+                                    from dateutil import parser
+                                    
+                                    match = re.search(r"R[\s\-\:\.\(\)]*(\d+)", rec_str)
+                                    if match:
+                                        months = int(match.group(1))
+                                        base_date = parser.parse(new_rec["analysis_date"])
+                                        new_date = base_date + relativedelta(months=months)
+                                        new_rec["reanalysis_date"] = new_date.strftime("%Y-%m-%d")
+                                except: pass
                             
                             # Skip empty rows (must have at least one valid key like substation or date)
                             if new_rec.get("substation") or new_rec.get("transformer") or new_rec.get("analysis_date"):
