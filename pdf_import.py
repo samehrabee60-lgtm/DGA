@@ -24,7 +24,7 @@ import PIL.Image
 def ocr_with_gemini(image: PIL.Image.Image, api_key: str):
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-2.0-flash')
+        
         prompt = """
         Extract the following fields from this DGA lab report image into a valid JSON object.
         Keys: "المحطة" (Substation), "المحول" (Transformer), "الجهد" (Voltage), 
@@ -33,21 +33,36 @@ def ocr_with_gemini(image: PIL.Image.Image, api_key: str):
         "Result of analysis" (Result), "DGA" (Diagnostic code), "C.Recommended" (R1, R2 etc).
         If a field is missing, use empty string "". Return ONLY JSON.
         """
-        # Retry logic for Quota Exceeded
+
         import time
-        max_retries = 3
-        for attempt in range(max_retries):
+        models = ['gemini-2.0-flash', 'gemini-1.5-flash']
+        
+        response = None
+        last_error = ""
+        
+        for m_name in models:
             try:
+                model = genai.GenerativeModel(m_name)
                 response = model.generate_content([prompt, image])
                 break # Success
             except Exception as e:
-                is_quota = "429" in str(e) or "quota" in str(e).lower()
-                if is_quota and attempt < max_retries - 1:
-                    wait_time = 10 * (attempt + 1)
-                    time.sleep(wait_time)
-                    continue
+                last_error = str(e)
+                if "429" in last_error:
+                    time.sleep(10) # Simple backoff
+                    try:
+                         model = genai.GenerativeModel(m_name)
+                         response = model.generate_content([prompt, image])
+                         break # Success on retry
+                    except Exception as e2:
+                        last_error = str(e2)
+                        continue # Follow to next model
                 else:
-                    raise e
+                    # Non-quota error, maybe try next model or fail? 
+                    # Often model-specific, so try next.
+                    continue
+        
+        if not response:
+             raise Exception(f"All models failed. Last error: {last_error}")
         import json
         text = response.text.strip()
         # More robust JSON extraction

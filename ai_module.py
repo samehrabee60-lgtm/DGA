@@ -52,23 +52,28 @@ def get_dga_diagnosis(sample_data: dict, api_key: str = None) -> str:
     Keep the response concise (max 200 words) and professional.
     """
 
-    try:
-        model = genai.GenerativeModel('gemini-2.0-flash')
-        # Retry logic for Quota Exceeded
-        import time
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                response = model.generate_content(prompt)
-                break
-            except Exception as e:
-                is_quota = "429" in str(e) or "quota" in str(e).lower()
-                if is_quota and attempt < max_retries - 1:
-                    wait_time = 10 * (attempt + 1)
-                    time.sleep(wait_time)
-                    continue
-                else:
-                    raise e
-        return response.text
-    except Exception as e:
-        return f"فشل في الاتصال بالذكاء الاصطناعي: {str(e)}\nتأكد من صحة مفتاح API."
+    import time
+    
+    models_to_try = ['gemini-2.0-flash', 'gemini-1.5-flash']
+    
+    for model_name in models_to_try:
+        try:
+            model = genai.GenerativeModel(model_name)
+            response = model.generate_content(prompt)
+            return response.text
+        except Exception as e:
+            err_str = str(e)
+            if "429" in err_str:
+                # If specific retry delay is needed, we could parse it, but a simple wait works
+                time.sleep(10) 
+                try: 
+                    # Retry once more with the same model after wait
+                    response = model.generate_content(prompt)
+                    return response.text
+                except:
+                    continue # Try next model
+            else:
+                # Try next model if it wasn't a 429 or retry failed
+                continue
+                
+    return "فشل في الاتصال بالذكاء الاصطناعي (تم تجاوز الحد المسموح أو خطأ آخر). يرجى المحاولة لاحقاً."
