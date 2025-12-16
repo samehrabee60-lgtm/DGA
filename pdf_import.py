@@ -33,7 +33,21 @@ def ocr_with_gemini(image: PIL.Image.Image, api_key: str):
         "Result of analysis" (Result), "DGA" (Diagnostic code), "C.Recommended" (R1, R2 etc).
         If a field is missing, use empty string "". Return ONLY JSON.
         """
-        response = model.generate_content([prompt, image])
+        # Retry logic for Quota Exceeded
+        import time
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = model.generate_content([prompt, image])
+                break # Success
+            except Exception as e:
+                is_quota = "429" in str(e) or "quota" in str(e).lower()
+                if is_quota and attempt < max_retries - 1:
+                    wait_time = 10 * (attempt + 1)
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    raise e
         import json
         text = response.text.strip()
         # More robust JSON extraction

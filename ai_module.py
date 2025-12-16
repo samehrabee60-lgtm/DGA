@@ -54,7 +54,21 @@ def get_dga_diagnosis(sample_data: dict, api_key: str = None) -> str:
 
     try:
         model = genai.GenerativeModel('gemini-2.0-flash')
-        response = model.generate_content(prompt)
+        # Retry logic for Quota Exceeded
+        import time
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = model.generate_content(prompt)
+                break
+            except Exception as e:
+                is_quota = "429" in str(e) or "quota" in str(e).lower()
+                if is_quota and attempt < max_retries - 1:
+                    wait_time = 10 * (attempt + 1)
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    raise e
         return response.text
     except Exception as e:
         return f"فشل في الاتصال بالذكاء الاصطناعي: {str(e)}\nتأكد من صحة مفتاح API."
