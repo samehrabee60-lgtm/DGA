@@ -1,5 +1,4 @@
 import supabase
-
 import streamlit as st
 import pandas as pd, json, os
 from io import BytesIO
@@ -8,6 +7,7 @@ from pdf_import import extract_from_pdf
 from report_export import generate_sample_pdf
 from storage import load_db, append_to_db, ensure_storage
 from ai_module import get_dga_diagnosis
+import re 
 
 icon_path = "logo.jpg" if os.path.exists("logo.jpg") else None
 st.set_page_config(page_title="DGA Assistant", layout="wide", page_icon=icon_path)
@@ -30,7 +30,7 @@ def login():
     pw = st.text_input("كلمة المرور (Password)", type="password")
     
     if st.button("Sign In"):
-        if user == "admin" and pw == "22446688":
+        if user == "admin" and pw == "@@@":
             st.session_state["logged_in"] = True
             st.session_state["role"] = "admin"
             st.rerun()
@@ -124,28 +124,42 @@ def main_app(role):
 
     def retest_date(row):
         rec = str(row.get("C.Recommended","")).upper().strip()
-        if len(rec)>=2 and rec[0]=="R" and rec[1:].isdigit():
-            months = int(rec[1:])
+        import re
+        from dateutil.relativedelta import relativedelta
+        from dateutil import parser
+        
+        # Match 'R' followed by optional separators (- : space . ( ) ) and digits
+        match = re.search(r"R[\s\-\:\.\(\)]*(\d+)", rec)
+        if match:
+            months = int(match.group(1))
             try:
-                base = pd.to_datetime(row.get("تاريخ التحليل",""))
-                if pd.isna(base): return ""
-                year = base.year + (base.month + months - 1)//12
-                month = (base.month + months - 1)%12 + 1
-                day = min(base.day, [31,29 if year%4==0 and (year%100!=0 or year%400==0) else 28,31,30,31,30,31,31,30,31,30,31][month-1])
-                return pd.Timestamp(year,month,day)
+                val = row.get("تاريخ التحليل")
+                if pd.isna(val) or val == "" or val is None: return ""
+                
+                # Handle existing Timestamp objects or strings
+                if isinstance(val, pd.Timestamp):
+                    base = val
+                elif isinstance(val, datetime):
+                     base = pd.Timestamp(val)
+                else:
+                    base = parser.parse(str(val))
+                
+                new_date = base + relativedelta(months=months)
+                return new_date
             except:
                 return ""
         return ""
 
-    # --- Styling Helpers ---
-    def highlight_o2n2(val):
+    # دالة مساعدة للحصول على القيمة الرقمية من الخلية
+    def get_numeric_value(val):
+        if pd.isna(val) or val is None or val == "":
+            return None
         try:
-            v = float(val)
-            if v > 1.0: return "color: red; font-weight: bold"
-            if v > 0.2: return "color: #9C5700; font-weight: bold"
-        except: pass
-        return ""
-
+            return float(str(val).replace(",", ""))
+        except:
+            return None
+            
+    # --- Styling Helpers: دالة التنسيق المصححة لمنع خطأ ValueError ---
     def highlight_gases(df):
         # Returns a DataFrame of CSS strings
         styles = pd.DataFrame('', index=df.index, columns=df.columns)
@@ -155,10 +169,8 @@ def main_app(role):
         
         for idx, row in df.iterrows():
             # Determine O2/N2 Ratio Category
-            try: 
-                ratio = float(row.get("O2/N2", 0))
-            except: 
-                ratio = 0
+            ratio = get_numeric_value(row.get("O2/N2"))
+            if ratio is None: ratio = 0
             
             is_le_02 = (ratio <= 0.2)
             
@@ -167,34 +179,37 @@ def main_app(role):
                 style_o2n2 = ""
                 if ratio > 1.0: style_o2n2 = "color: red; font-weight: bold"
                 elif ratio > 0.2: style_o2n2 = "color: #9C5700; font-weight: bold"
-                if "O2/N2" in styles.columns:
-                    styles.loc[idx, "O2/N2"] = style_o2n2
+                styles.loc[idx, "O2/N2"] = style_o2n2
             except: pass
 
             # Check other gases based on ratio
             for gas in ["H2","CH4","C2H6","C2H4","C2H2","CO","CO2"]:
                 if gas not in row or gas not in tdf.index: continue
-                try:
-                    val = float(str(row[gas]).replace(",",""))
+                
+                val = get_numeric_value(row.get(gas))
+                if val is None: continue # Skip if not a valid number
+                
+                # Get limits based on ratio
+                if is_le_02:
+                    lim_90 = get_numeric_value(tdf.loc[gas, "90th_<=0.2"])
+                    lim_95 = get_numeric_value(tdf.loc[gas, "95th_<=0.2"])
+                else:
+                    lim_90 = get_numeric_value(tdf.loc[gas, "90th_>0.2"])
+                    lim_95 = get_numeric_value(tdf.loc[gas, "95th_>0.2"])
                     
-                    # Get limits based on ratio
-                    if is_le_02:
-                        lim_90 = tdf.loc[gas, "90th_<=0.2"]
-                        lim_95 = tdf.loc[gas, "95th_<=0.2"]
-                    else:
-                        lim_90 = tdf.loc[gas, "90th_>0.2"]
-                        lim_95 = tdf.loc[gas, "95th_>0.2"]
-                        
-                    # Apply Colors (Background for easier visibility)
-                    if val > lim_95:
-                        styles.loc[idx, gas] = "background-color: #FFC7CE; color: #9C0006" # Red
-                    elif val > lim_90:
-                        styles.loc[idx, gas] = "background-color: #FFEB9C; color: #9C5700" # Yellow
-                    else:
-                        styles.loc[idx, gas] = "background-color: #C6EFCE; color: #006100" # Green
-                except:
-                    pass
+                if lim_95 is None or lim_90 is None: continue # Skip if limits are invalid
+                
+                # Apply Colors (Background for easier visibility)
+                if val > lim_95:
+                    styles.loc[idx, gas] = "background-color: #FFC7CE; color: #9C0006" # Red
+                elif val > lim_90:
+                    styles.loc[idx, gas] = "background-color: #FFEB9C; color: #9C5700" # Yellow
+                else:
+                    styles.loc[idx, gas] = "background-color: #C6EFCE; color: #006100" # Green
+                    
         return styles
+
+    # --- نهاية دالة highlight_gases المصححة ---
 
     tab1, tab2, tab3 = st.tabs(["Import PDF & Edit","Work Table & Export Excel","Database"])
 
@@ -211,7 +226,6 @@ def main_app(role):
             if not st.session_state.get("file_processed") or st.session_state.get("last_uploaded") != uploaded.name:
                  # Read bytes once
                  file_bytes = uploaded.read()
-                 st.session_state["pdf_bytes"] = file_bytes
                  
                  # Attempt extraction
                  current_api_key = api_key_input or os.environ.get("GEMINI_API_KEY")
@@ -231,6 +245,7 @@ def main_app(role):
                  st.session_state["current_data"] = extracted_data
                  st.session_state["last_uploaded"] = uploaded.name
                  st.session_state["file_processed"] = True
+                 if "generated_pdf" in st.session_state: del st.session_state["generated_pdf"]
                  
                  # Status Feedback
                  data = st.session_state["current_data"]
@@ -259,6 +274,7 @@ def main_app(role):
             if st.session_state.get("last_uploaded"):
                 st.session_state["current_data"] = {}
                 st.session_state["last_uploaded"] = None
+                if "generated_pdf" in st.session_state: del st.session_state["generated_pdf"]
         
         # Merge session data into row
         extracted = st.session_state["current_data"]
@@ -302,7 +318,6 @@ def main_app(role):
             if not r.get("الجهد"):
                 try:
                     val = str(r.get("المحول", ""))
-                    import re
                     # Look for patterns like 66/11, 220/66, 500/220
                     m = re.search(r"(\d{2,3}(?:/\d{2,3})?)", val)
                     if m:
@@ -356,13 +371,18 @@ def main_app(role):
                         st.session_state["current_data"] = {}
                         st.session_state["file_processed"] = False
                         st.session_state["last_uploaded"] = None
+                        if "generated_pdf" in st.session_state: del st.session_state["generated_pdf"]
                         st.rerun()
             else:
                 col1.info("🔒 Save Disabled (Guest)")
 
             if col2.button("🧾 Generate PDF report"):
                 pdf_bytes, fname = generate_sample_pdf(r)
-                st.download_button("⬇️ Download report PDF", data=pdf_bytes, file_name=fname, mime="application/pdf")
+                st.session_state["generated_pdf"] = (pdf_bytes, fname)
+            
+            if "generated_pdf" in st.session_state:
+                p_bytes, p_name = st.session_state["generated_pdf"]
+                st.download_button("⬇️ Download report PDF (Click to Save)", data=p_bytes, file_name=p_name, mime="application/pdf")
             if col3.button("🔁 Open in table for batch export"):
                 st.info("Go to 'Work Table & Export Excel' tab to continue batch edits and export.")
     
@@ -388,11 +408,59 @@ def main_app(role):
             edited["تاريخ إعادة التحليل"] = edited.apply(lambda r: retest_date(r), axis=1)
         
         # --- Advanced Conditional Formatting (UI) ---
+        def highlight_gases(df):
+            # Returns a DataFrame of CSS strings
+            styles = pd.DataFrame('', index=df.index, columns=df.columns)
+            
+            # Load thresholds
+            tdf = pd.DataFrame(thr["unknown_age"]).set_index("Gas")
+            
+            for idx, row in df.iterrows():
+                # Determine O2/N2 Ratio Category
+                try: 
+                    ratio = float(row.get("O2/N2", 0))
+                except: 
+                    ratio = 0
+                
+                is_le_02 = (ratio <= 0.2)
+                
+                # Check O2/N2 Column itself (Yellow > 0.2, Red > 1.0)
+                try:
+                    style_o2n2 = ""
+                    if ratio > 1.0: style_o2n2 = "color: red; font-weight: bold"
+                    elif ratio > 0.2: style_o2n2 = "color: #9C5700; font-weight: bold"
+                    styles.loc[idx, "O2/N2"] = style_o2n2
+                except: pass
 
+                # Check other gases based on ratio
+                for gas in ["H2","CH4","C2H6","C2H4","C2H2","CO","CO2"]:
+                    if gas not in row or gas not in tdf.index: continue
+                    try:
+                        val = float(str(row[gas]).replace(",",""))
+                        
+                        # Get limits based on ratio
+                        if is_le_02:
+                            lim_90 = tdf.loc[gas, "90th_<=0.2"]
+                            lim_95 = tdf.loc[gas, "95th_<=0.2"]
+                        else:
+                            lim_90 = tdf.loc[gas, "90th_>0.2"]
+                            lim_95 = tdf.loc[gas, "95th_>0.2"]
+                            
+                        # Apply Colors
+                        if val > lim_95:
+                            styles.loc[idx, gas] = "background-color: #F8CBAD; color: black" # Red-ish bg
+                        elif val > lim_90:
+                            styles.loc[idx, gas] = "background-color: #FFEB9C; color: black" # Yellow-ish bg
+                        else:
+                            styles.loc[idx, gas] = "background-color: #C6EFCE; color: black" # Green-ish bg
+                    except:
+                        pass
+            return styles
 
         st.dataframe(edited.style.apply(highlight_gases, axis=None), use_container_width=True)
     
         def export_with_rules(df):
+            from io import BytesIO
             out = BytesIO()
             import xlsxwriter
             wb = xlsxwriter.Workbook(out, {'in_memory': True})
@@ -462,13 +530,24 @@ def main_app(role):
             "ch4": "CH4", "c2h2": "C2H2", "c2h4": "C2H4", "c2h6": "C2H6",
             "o2_n2_ratio": "O2/N2", "result_text": "Result of analysis",
             "dga_code": "DGA", "recommendation": "C.Recommended",
-            "ai_diagnosis": "AI Report"
+            "ai_diagnosis": "AI Report",
+            "reanalysis_date": "تاريخ إعادة التحليل"
         }
         
         db_df = pd.DataFrame(db)
         if not db_df.empty:
             # Rename columns that exist
             db_df = db_df.rename(columns=db_map)
+            # Ensure O2/N2 exists for styling (even if DB didn't return it)
+            if "O2/N2" not in db_df.columns:
+                db_df["O2/N2"] = None
+
+            # Drop technical columns for display
+            db_df = db_df.drop(columns=["id", "created_at"], errors="ignore")
+
+            # Calculate Reanalysis Date on the fly
+            db_df["تاريخ إعادة التحليل"] = db_df.apply(lambda r: retest_date(r), axis=1)
+
             # Ensure numbers are numeric for styling
             num_cols = ["O2","N2","H2","CO2","CO","CH4","C2H2","C2H4","C2H6","O2/N2"]
             for c in num_cols:
@@ -489,6 +568,195 @@ def main_app(role):
             )
         else:
             st.info("No data in database yet.")
+
+        if role == "guest":
+            return
+
+        st.markdown("---")
+        st.subheader("📤 Bulk Import Data")
+        
+        # --- Template Download ---
+        st.markdown("#### 1. Download Template (Optional)")
+        template_data = {
+            "المحطة": ["Substation A"],
+            "المحول": ["TR-1"],
+            "الجهد": ["66/11"],
+            "تاريخ العينة": ["2024-01-01"],
+            "تاريخ التحليل": ["2024-01-02"],
+            "تاريخ إعادة التحليل": ["2024-02-01"],
+            "H2": [10], "O2": [2000], "N2": [5000], "CO": [100], "CO2": [300],
+            "CH4": [5], "C2H4": [10], "C2H6": [2], "C2H2": [0], 
+            "O2/N2": [0.4],
+            "Result of analysis": ["Normal"],
+            "DGA": ["No Fault"],
+            "C.Recommended": ["R 1"],
+            "AI Report": ["Healthy"]
+        }
+        
+        # Create Excel in memory
+        from io import BytesIO
+        tpl_buffer = BytesIO()
+        with pd.ExcelWriter(tpl_buffer, engine='xlsxwriter') as writer:
+            pd.DataFrame(template_data).to_excel(writer, index=False)
+        
+        st.download_button("⬇️ Download Excel Template", data=tpl_buffer.getvalue(), file_name="DGA_Import_Template.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+        st.markdown("#### 2. Upload Your File")
+        with st.expander("Import Configuration", expanded=True):
+            st.markdown("""
+            **Note:** The app expects columns like: `المحطة`, `المحول`, `H2`, `O2`, etc.
+            (English or Arabic headers are accepted).
+            """)
+            
+            bulk_file = st.file_uploader("Upload Excel/CSV", type=["xlsx", "xls", "csv"])
+            if bulk_file:
+                try:
+                    # Load Data
+                    if bulk_file.name.endswith(".csv"):
+                        bulk_df = pd.read_csv(bulk_file)
+                    else:
+                        bulk_df = pd.read_excel(bulk_file)
+                    
+                    st.write(f"📊 Rows: {len(bulk_df)}, Columns: {len(bulk_df.columns)}")
+                    
+                    # --- Flexible Normalization ---
+                    # Normalize headers: strip, lower, remove BOM
+                    bulk_df.columns = [str(c).strip() for c in bulk_df.columns]
+                    
+                    # --- Column Mapping Logic ---
+                    COLUMN_MAP = {
+                        "المحطة": "substation", "substation": "substation", "station": "substation",
+                        "المحول": "transformer", "transformer": "transformer", "transformer no": "transformer", "trans": "transformer",
+                        "الجهد": "voltage", "voltage": "voltage", "kv": "voltage",
+                        "تاريخ العينة": "sample_date", "sample date": "sample_date", "date of sample": "sample_date", "sampling date": "sample_date",
+                        "تاريخ التحليل": "analysis_date", "analysis date": "analysis_date", "date of analysis": "analysis_date",
+                        "تاريخ إعادة التحليل": "reanalysis_date", "reanalysis date": "reanalysis_date", "re-test date": "reanalysis_date",
+                        "h2": "h2", "o2": "o2", "n2": "n2", "co": "co", "co2": "co2", 
+                        "ch4": "ch4", "c2h2": "c2h2", "c2h4": "c2h4", "c2h6": "c2h6",
+                        "o2/n2": "o2_n2_ratio", "o2/n2 ratio": "o2_n2_ratio",
+                        "result of analysis": "result_text", "result": "result_text", "diagnosis": "result_text",
+                        "dga": "dga_code", "code": "dga_code",
+                        "c.recommended": "recommendation", "recommendation": "recommendation", "action": "recommendation",
+                        "ai report": "ai_diagnosis", "ai diagnosis": "ai_diagnosis"
+                    }
+                    
+
+                    
+                    # Helper functions (Defined locally to avoid scope issues)    
+                    def local_clean_float(val):
+                        if pd.isna(val) or val == "": return None
+                        if isinstance(val, (int, float)): return float(val)
+                        try: return float(str(val).replace(",", "").strip())
+                        except: return None
+                        
+                    def local_clean_date(val):
+                        if not val or pd.isna(val) or str(val).strip() == "": return None
+                        # Check if it's already a timestamp
+                        if hasattr(val, "strftime"): return val.strftime("%Y-%m-%d")
+                        try:
+                            import dateutil.parser
+                            return dateutil.parser.parse(str(val)).strftime("%Y-%m-%d")
+                        except: return None
+
+                    # Check which columns were found
+                    found_map = {}
+                    for col in bulk_df.columns:
+                        c_lower = col.lower()
+                        if c_lower in COLUMN_MAP:
+                            found_map[col] = COLUMN_MAP[c_lower]
+                            
+                    if not found_map:
+                        st.error("❌ No matching columns found! Please check your file headers.")
+                        st.warning(f"**Your File Headers:** {list(bulk_df.columns)}")
+                        st.info("Try using the 'Download Template' button above to see the expected format.")
+                    else:
+                        st.success(f"✅ Mapped {len(found_map)} columns: {list(found_map.keys())}")
+                        
+                        mapped_records = []
+                        for idx, row in bulk_df.iterrows():
+                            new_rec = {}
+                            for buf_col, db_key in found_map.items():
+                                val = row[buf_col]
+                                
+                                # Clean Data
+                                if db_key in ["sample_date","analysis_date","reanalysis_date"]:
+                                    val = local_clean_date(val)
+                                elif db_key in ["h2","o2","n2","co","co2","ch4","c2h2","c2h4","c2h6","o2_n2_ratio"]:
+                                    val = local_clean_float(val)
+                                else:
+                                    if pd.isna(val) or val == "": val = None
+                                    else: val = str(val).strip()
+                                    
+                                new_rec[db_key] = val
+                            
+                            # --- Auto-Calculations for Missing Fields ---
+                            # 1. O2/N2 Ratio
+                            if new_rec.get("o2") is not None and new_rec.get("n2") not in [None, 0]:
+                                try:
+                                    new_rec["o2_n2_ratio"] = round(float(new_rec["o2"]) / float(new_rec["n2"]), 2)
+                                except: pass
+                                
+                            # 2. Reanalysis Date
+                            if new_rec.get("recommendation") and new_rec.get("analysis_date"):
+                                # Expecting format like "R 1" or "R1" in recommendation
+                                try:
+                                    rec_str = str(new_rec["recommendation"]).upper().strip()
+                                    import re
+                                    from dateutil.relativedelta import relativedelta
+                                    from dateutil import parser
+                                    
+                                    match = re.search(r"R[\s\-\:\.\(\)]*(\d+)", rec_str)
+                                    if match:
+                                        months = int(match.group(1))
+                                        base_date = parser.parse(new_rec["analysis_date"])
+                                        new_date = base_date + relativedelta(months=months)
+                                        new_rec["reanalysis_date"] = new_date.strftime("%Y-%m-%d")
+                                except: pass
+                            
+                            # Skip empty rows (must have at least one valid key like substation or date)
+                            if new_rec.get("substation") or new_rec.get("transformer") or new_rec.get("analysis_date"):
+                                new_rec["source_file"] = f"Bulk Import: {bulk_file.name}"
+                                mapped_records.append(new_rec)
+
+                        st.write(f"READY to import {len(mapped_records)} valid rows.")
+                        with st.expander("Preview Final Data"):
+                             st.dataframe(pd.DataFrame(mapped_records).head())
+                        
+                        if st.button(f"🚀 Confirm Import ({len(mapped_records)} Rows)"):
+                            success_n = 0
+                            fail_n = 0
+                            my_bar = st.progress(0)
+                            
+                            # Batch Insert
+                            batch_size = 50
+                            import math
+                            total_batches = math.ceil(len(mapped_records) / batch_size)
+                            
+                            # Get client
+                            from storage import get_supabase_client
+                            client = get_supabase_client()
+                            
+                            if not client:
+                                st.error("Supabase Connection Failed")
+                            else:
+                                for i in range(total_batches):
+                                    batch = mapped_records[i*batch_size : (i+1)*batch_size]
+                                    try:
+                                        client.table("dga_samples").insert(batch).execute()
+                                        success_n += len(batch)
+                                    except Exception as e:
+                                        st.error(f"Batch {i+1} failed: {e}")
+                                        fail_n += len(batch)
+                                    my_bar.progress((i+1)/total_batches)
+                                    
+                                st.success(f"Import Complete! Success: {success_n}, Failed: {fail_n}")
+                                if success_n > 0:
+                                    import time
+                                    time.sleep(2)
+                                    st.rerun()
+
+                except Exception as e:
+                    st.error(f"Error parsing file: {e}")
 
 # -----------------
 # Entry Point
