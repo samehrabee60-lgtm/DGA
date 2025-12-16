@@ -38,4 +38,30 @@ def generate_sample_pdf(row: dict):
     c.drawString(2*cm, y, f"Result of analysis: {row.get('Result of analysis','')}"); y -= 0.5*cm
     c.drawString(2*cm, y, f"DGA: {row.get('DGA','')}"); y -= 0.5*cm
     c.drawString(2*cm, y, f"Recommended: {row.get('C.Recommended','')}"); y -= 0.7*cm
-    c.setFont("Helvetica-Oblique", 9); c.setFillColor(colors.grey); c.drawString(2*cm, y, "Retest date = Analysis date + n months."); c.showPage(); c.save(); return buf.getvalue(), "Sample_Report.pdf"
+    c.setFont("Helvetica-Oblique", 9); c.setFillColor(colors.grey); c.drawString(2*cm, y, "Retest date = Analysis date + n months.");
+    
+    # Add AI Report section
+    ai_text = str(row.get("AI Report",""))
+    if ai_text and ai_text.lower() != "nan":
+        y -= 1.0*cm
+        # Check for page break
+        if y < 4*cm:
+            c.showPage(); y = h - 3*cm
+            
+        c.setFillColor(colors.black); c.setFont("Helvetica-Bold", 12)
+        c.drawString(2*cm, y, "AI Diagnosis:")
+        y -= 0.6*cm
+        c.setFont("Helvetica", 10)
+        
+        # Simple wrapping
+        from reportlab.lib.utils import simpleSplit
+        lines = simpleSplit(ai_text, "Helvetica", 10, w-4*cm)
+        for line in lines:
+            if y < 2*cm:
+                 c.showPage()
+                 y = h - 2.5*cm
+                 c.setFont("Helvetica", 10)
+            c.drawString(2*cm, y, line)
+            y -= 0.5*cm
+
+    c.showPage(); c.save(); return buf.getvalue(), "Sample_Report.pdf"

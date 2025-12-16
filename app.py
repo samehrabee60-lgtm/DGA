@@ -167,7 +167,8 @@ def main_app(role):
                 style_o2n2 = ""
                 if ratio > 1.0: style_o2n2 = "color: red; font-weight: bold"
                 elif ratio > 0.2: style_o2n2 = "color: #9C5700; font-weight: bold"
-                styles.loc[idx, "O2/N2"] = style_o2n2
+                if "O2/N2" in styles.columns:
+                    styles.loc[idx, "O2/N2"] = style_o2n2
             except: pass
 
             # Check other gases based on ratio
@@ -214,7 +215,20 @@ def main_app(role):
                  
                  # Attempt extraction
                  current_api_key = api_key_input or os.environ.get("GEMINI_API_KEY")
-                 st.session_state["current_data"] = extract_from_pdf(file_bytes, api_key=current_api_key)
+                 extracted_data = extract_from_pdf(file_bytes, api_key=current_api_key)
+
+                 # Auto-run AI if key is present
+                 if current_api_key:
+                     # Check if we have at least some gas data to analyze
+                     has_gas = any(extracted_data.get(g) for g in ["H2","C2H2","C2H4"])
+                     if has_gas:
+                         try:
+                             diagnosis = get_dga_diagnosis(extracted_data, current_api_key)
+                             extracted_data["AI Report"] = diagnosis
+                         except Exception as e:
+                             extracted_data["AI Report"] = f"Error generating report: {e}"
+
+                 st.session_state["current_data"] = extracted_data
                  st.session_state["last_uploaded"] = uploaded.name
                  st.session_state["file_processed"] = True
                  
@@ -374,54 +388,7 @@ def main_app(role):
             edited["تاريخ إعادة التحليل"] = edited.apply(lambda r: retest_date(r), axis=1)
         
         # --- Advanced Conditional Formatting (UI) ---
-        def highlight_gases(df):
-            # Returns a DataFrame of CSS strings
-            styles = pd.DataFrame('', index=df.index, columns=df.columns)
-            
-            # Load thresholds
-            tdf = pd.DataFrame(thr["unknown_age"]).set_index("Gas")
-            
-            for idx, row in df.iterrows():
-                # Determine O2/N2 Ratio Category
-                try: 
-                    ratio = float(row.get("O2/N2", 0))
-                except: 
-                    ratio = 0
-                
-                is_le_02 = (ratio <= 0.2)
-                
-                # Check O2/N2 Column itself (Yellow > 0.2, Red > 1.0)
-                try:
-                    style_o2n2 = ""
-                    if ratio > 1.0: style_o2n2 = "color: red; font-weight: bold"
-                    elif ratio > 0.2: style_o2n2 = "color: #9C5700; font-weight: bold"
-                    styles.loc[idx, "O2/N2"] = style_o2n2
-                except: pass
 
-                # Check other gases based on ratio
-                for gas in ["H2","CH4","C2H6","C2H4","C2H2","CO","CO2"]:
-                    if gas not in row or gas not in tdf.index: continue
-                    try:
-                        val = float(str(row[gas]).replace(",",""))
-                        
-                        # Get limits based on ratio
-                        if is_le_02:
-                            lim_90 = tdf.loc[gas, "90th_<=0.2"]
-                            lim_95 = tdf.loc[gas, "95th_<=0.2"]
-                        else:
-                            lim_90 = tdf.loc[gas, "90th_>0.2"]
-                            lim_95 = tdf.loc[gas, "95th_>0.2"]
-                            
-                        # Apply Colors
-                        if val > lim_95:
-                            styles.loc[idx, gas] = "background-color: #F8CBAD; color: black" # Red-ish bg
-                        elif val > lim_90:
-                            styles.loc[idx, gas] = "background-color: #FFEB9C; color: black" # Yellow-ish bg
-                        else:
-                            styles.loc[idx, gas] = "background-color: #C6EFCE; color: black" # Green-ish bg
-                    except:
-                        pass
-            return styles
 
         st.dataframe(edited.style.apply(highlight_gases, axis=None), use_container_width=True)
     
