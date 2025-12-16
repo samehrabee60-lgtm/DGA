@@ -36,13 +36,19 @@ def ocr_with_gemini(image: PIL.Image.Image, api_key: str):
         response = model.generate_content([prompt, image])
         import json
         text = response.text.strip()
-        if text.startswith("```json"):
-            text = text[7:-3].strip()
-        elif text.startswith("```"):
-            text = text[3:-3].strip()
-        return json.loads(text)
+        # More robust JSON extraction
+        import re
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        if match:
+             json_str = match.group(0)
+             try:
+                 data = json.loads(json_str)
+                 return data, text
+             except:
+                 return {"_error": "JSON parse error"}, text
+        return {"_error": "No JSON found"}, text
     except Exception as e:
-        return {"_error": str(e)}
+        return {"_error": str(e)}, str(e)
 
 def extract_from_pdf(pdf_bytes: bytes, api_key: str = None):
     result = {}
@@ -96,9 +102,9 @@ def extract_from_pdf(pdf_bytes: bytes, api_key: str = None):
     
     # 2. Fallback to Gemini OCR
     if api_key and first_page_image:
-        result = ocr_with_gemini(first_page_image, api_key)
+        result, raw_resp = ocr_with_gemini(first_page_image, api_key)
         result["_source"] = "gemini_vision"
-        result["_raw_text"] = "Extracted via Gemini Vision (OCR)"
+        result["_raw_text"] = "Extracted via Gemini Vision. Raw JSON:\n" + raw_resp
         return result
         
     return {"_raw_text": "No text found and no API key (or image) for OCR."}
