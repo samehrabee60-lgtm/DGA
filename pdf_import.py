@@ -35,7 +35,8 @@ def ocr_with_gemini(image: PIL.Image.Image, api_key: str):
         """
 
         import time
-        models = ['gemini-2.0-flash', 'gemini-1.5-flash']
+        # Try specific versions first, then aliases
+        models = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-1.5-flash-latest', 'gemini-1.5-flash-001', 'gemini-pro-vision']
         
         response = None
         last_error = ""

@@ -233,14 +233,22 @@ def main_app(role):
 
                  # Auto-run AI if key is present
                  if current_api_key:
-                     # Check if we have at least some gas data to analyze
-                     has_gas = any(extracted_data.get(g) for g in ["H2","C2H2","C2H4"])
+                     # Check if we have at least some gas data to analyze (allow 0 as valid)
+                     has_gas = False
+                     for g in ["H2","C2H2","C2H4", "CH4", "C2H6"]:
+                         val = extracted_data.get(g)
+                         if val is not None and str(val).strip() != "":
+                             has_gas = True
+                             break
+                     
                      if has_gas:
                          try:
                              diagnosis = get_dga_diagnosis(extracted_data, current_api_key)
                              extracted_data["AI Report"] = diagnosis
                          except Exception as e:
                              extracted_data["AI Report"] = f"Error generating report: {e}"
+                     else:
+                         extracted_data["AI Report"] = "No gas data found checking H2, C2H2, C2H4... Please verify OCR results."
 
                  st.session_state["current_data"] = extracted_data
                  st.session_state["last_uploaded"] = uploaded.name
@@ -264,7 +272,8 @@ def main_app(role):
                          else:
                             st.warning("⚠️ مطلوب API Key لقراءة هذا الملف (يجب الاتصال بالمسؤول - Admin).")
                      
-                 with st.expander("🔍 Debug: View extracted extracted PDF text"):
+                 with st.expander("🔍 Debug: View extracted PDF text & JSON"):
+                     st.json(data)
                      st.text(data.get("_raw_text", "No text found."))
                      if st.button("🔄 Retry Extraction"):
                          st.session_state["file_processed"] = False
