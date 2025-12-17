@@ -1,8 +1,16 @@
+import os
+import subprocess
+import sys
 
-import sys, os, webbrowser
-from streamlit.web import bootstrap
-SCRIPT_PATH = os.path.join(os.path.dirname(__file__), "app.py")
 def main():
-    webbrowser.open("http://localhost:8501", new=1, autoraise=True)
-    bootstrap.run(SCRIPT_PATH, "", [], {})
-if __name__ == "__main__": main()
+    # Get the path to app.py relative to this script
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    app_path = os.path.join(script_dir, "app.py")
+    
+    # Run absolute path to ensure certainty
+    cmd = [sys.executable, "-m", "streamlit", "run", app_path]
+    print(f"Launching: {' '.join(cmd)}")
+    subprocess.call(cmd)
+
+if __name__ == "__main__":
+    main()
