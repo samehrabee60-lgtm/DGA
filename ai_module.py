@@ -54,7 +54,7 @@ def get_dga_diagnosis(sample_data: dict, api_key: str = None) -> str:
 
     import time
     
-    models_to_try = ['gemini-1.5-flash', 'gemini-1.5-flash-latest', 'gemini-1.5-flash-001', 'gemini-pro']
+    models_to_try = ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-flash-latest', 'gemini-1.5-flash']
     
     for model_name in models_to_try:
         try:
